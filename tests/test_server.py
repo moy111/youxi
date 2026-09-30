@@ -7,6 +7,10 @@ class Contracts(unittest.TestCase):
   self.assertEqual(server.extract('a.txt',base64.b64encode('摄影'.encode()).decode()),'摄影')
  def test_unsupported_file(self):
   with self.assertRaises(ValueError):server.extract('a.exe',base64.b64encode(b'anything').decode())
+ def test_bad_pdf_message(self):
+  b64=base64.b64encode(b'not a real pdf').decode()
+  with self.assertRaises(ValueError) as cm:server.extract('broken.pdf',b64)
+  self.assertIn('PDF',str(cm.exception))
  def test_incomplete_profile(self):
   with self.assertRaises(ValueError):server.validate('parse',{'skills':[]})
  def test_eval_verdict(self):

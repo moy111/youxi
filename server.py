@@ -174,16 +174,22 @@ def extract(name,encoded):
     elif ext=='.pdf':
         try:from pypdf import PdfReader
         except ImportError:raise ValueError('请安装requirements.txt中的PDF解析依赖')
-        reader=PdfReader(io.BytesIO(data))
-        if len(reader.pages)>40:raise ValueError('PDF最多40页，请只上传相关内容')
-        text='\n'.join(p.extract_text() or '' for p in reader.pages)
+        try:
+            reader=PdfReader(io.BytesIO(data))
+            if len(reader.pages)>40:raise ValueError('PDF最多40页，请只上传相关内容')
+            text='\n'.join(p.extract_text() or '' for p in reader.pages)
+        except ValueError:raise
+        except Exception:raise ValueError('PDF无法解析：文件可能已损坏、加密或版本不兼容。请另存为标准文字版PDF，或直接粘贴文字介绍') from None
     elif ext=='.docx':
         try:from docx import Document
         except ImportError:raise ValueError('请安装requirements.txt中的Word解析依赖')
         import zipfile
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             if sum(i.file_size for i in z.infolist())>20*1024*1024:raise ValueError('文档解压后过大')
-        d=Document(io.BytesIO(data));text='\n'.join([p.text for p in d.paragraphs]+[' | '.join(c.text for c in row.cells) for table in d.tables for row in table.rows])
+        try:
+            d=Document(io.BytesIO(data));text='\n'.join([p.text for p in d.paragraphs]+[' | '.join(c.text for c in row.cells) for table in d.tables for row in table.rows])
+        except ValueError:raise
+        except Exception:raise ValueError('DOCX无法解析：请确认是有效的Word文档（.docx）；旧版.doc请先另存为.docx') from None
     else:raise ValueError('支持TXT/MD/JSON/CSV、文字型PDF和DOCX；旧DOC/扫描件请先转成文字')
     if not text.strip():raise ValueError('未提取到文字；扫描件请先OCR，或粘贴个人介绍')
     if len(text)>18000:raise ValueError('文件文字超过18000字符，请精简后重新上传')
