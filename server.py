@@ -38,6 +38,14 @@ def usage():
     if u.get('date')!=today:u={'date':today,'requests':0,'prompt_tokens':0,'completion_tokens':0}
     return u
 
+def save_key(new):
+    global KEY
+    new=(new or '').strip()
+    if not new.startswith('sk-') or len(new)<20:raise ValueError('Key格式无效：DeepSeek Key 以 sk- 开头')
+    env=ROOT/'.env';lines=[l for l in (env.read_text().splitlines() if env.exists() else []) if l.strip() and l.split('=',1)[0].strip()!='DEEPSEEK_API_KEY']
+    tmp=env.with_suffix('.tmp');tmp.write_text('DEEPSEEK_API_KEY='+new+'\n'+'\n'.join(lines)+('\n' if lines else ''));tmp.chmod(0o600);tmp.replace(env)
+    KEY=new
+
 def validate(kind,r):
     if not isinstance(r,dict):raise ValueError('模型结果不是JSON对象')
     for k,sample in SCHEMAS[kind].items():
@@ -85,7 +93,7 @@ def complete(kind,inp,request_id):
         try:
             with urllib.request.urlopen(req,timeout=100) as res:out=json.load(res)
         except urllib.error.HTTPError as e:
-            messages={401:'DeepSeek密钥无效，请更新本机.env',402:'DeepSeek余额不足',429:'DeepSeek请求过于频繁，请稍后重试'}
+            messages={401:'DeepSeek密钥无效，请在首页更换Key后重试',402:'DeepSeek余额不足',429:'DeepSeek请求过于频繁，请稍后重试'}
             raise ValueError(messages.get(e.code,'DeepSeek接口返回错误：'+str(e.code))) from None
         except (urllib.error.URLError,TimeoutError):raise ValueError('DeepSeek连接失败或超时。输入保留，请手动重试') from None
         with LOCK:
@@ -159,6 +167,9 @@ class Handler(BaseHTTPRequestHandler):
                     if dest.exists():atomic(DATA/'projects.backup.json',json.loads(dest.read_text()))
                     atomic(dest,data)
                 result={'saved':True}
+            elif self.path=='/api/key':
+                if not isinstance(data,dict) or not isinstance(data.get('key'),str):raise ValueError('Key格式无效')
+                save_key(data['key']);result={'configured':True,'model':MODEL}
             else:return self.reply({'error':'Not found'},404)
             self.reply(result)
         except (ValueError,KeyError,UnicodeError) as e:self.reply({'error':str(e)},400)

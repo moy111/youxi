@@ -1,4 +1,4 @@
-// 有戏 · 纯前端演示版（无后端：localStorage 持久化；解析/对话/摘要/评估为规则模拟，全部明示"演示版"）
+// 有戏 · DeepSeek 本地版（本地服务保管密钥：解析/对话/摘要/六维分析/评估接入 DeepSeek；localStorage 仅作本机草稿副本）
 "use strict";
 
 const LS_KEY = "youxi_demo_v1";
@@ -17,6 +17,7 @@ let VIEW = "home";
 let toastTimer = null;
 let tempFile = null; // {name, text}
 let draftTimer = null;
+let forceSetup = false; // 已配置时从首页进入「更换 DeepSeek Key」
 
 /* ---------- 基础工具 ---------- */
 function $(sel) { return document.querySelector(sel); }
@@ -124,23 +125,6 @@ function cardHtml(p) {
   </button>`;
 }
 
-function viewHome() {
-  const cards = S.projects.slice().sort((a, b) => b.updatedAt - a.updatedAt);
-  return `
-  <div class="eyebrow">欢迎回来</div>
-  <h1>让你的想法，<br>一步步有戏。</h1>
-  <p class="muted">从你的经历出发，找到值得验证的创业方向。这是<b>演示版</b>：流程完整可走通，解析/对话/评估为规则模拟。</p>
-  <div class="stack"><button class="primary" data-action="new">＋ 开始一个新想法</button></div>
-  <div class="section">
-    <div class="row"><h2>最近的想法</h2><button class="ghost" data-nav="archive">全部记录</button></div>
-    ${cards.length ? cards.slice(0, 3).map(cardHtml).join("") : '<p class="muted">你的第一个想法会保存在这里（本浏览器）。</p>'}
-  </div>
-  <div class="box soft"><span class="tag">演示版与正式版的差别</span>
-    <p class="tiny">演示版：数据只存本浏览器，清除浏览器数据会丢失；解析/对话/摘要/评估均为规则模拟。<br>正式版（全栈版）：真实 AI 模型解析与三轮对话、PDF/Word 文件解析、数据库持久化与多设备访问、六维分析与验证任务。</p>
-  </div>
-  <p class="saved">每一步都会保存在本浏览器。</p>`;
-}
-
 function viewUpload(p) {
   const pr = p.profile.current;
   const f = flags(p);
@@ -228,53 +212,6 @@ function viewChat(p) {
   ${ideaBox}`;
 }
 
-function viewAnalysis(p) {
-  const f = flags(p);
-  if (!f.hasIdea) {
-    return `<div class="eyebrow">3 / 分析与验证</div><h1>分析与验证</h1>
-    <div class="box soft"><span class="tag">暂不可用</span><p class="muted">请先完成阶段 2 的三轮对话并生成想法摘要。</p></div>
-    <div class="stack"><button data-nav="chat">返回想法对话</button></div>`;
-  }
-  const tasks = p.analysis ? p.analysis.tasks : [];
-  return `
-  <div class="eyebrow">3 / 分析与验证</div>
-  <h1>${esc(p.title)}</h1>
-  <p class="muted">基于摘要中的未知项整理验证清单。演示版：清单与判断为简化规则；正式版由 AI 生成六维分析（能力匹配/需求价值/差异化/收入成本/可行性/风险边界）。</p>
-  <div class="box"><span class="tag">验证清单</span>
-    ${tasks.length ? tasks.map((t, i) => `
-      <button class="task ${t.status === "recorded" ? "recorded" : ""}" data-action="toggle-task" data-i="${i}">
-        <span class="st">${t.status === "recorded" ? "✓ 已记录" : "○ 待收集"}</span><span>${esc(t.text)}</span>
-      </button>`).join("") : '<p class="muted">暂无验证项。</p>'}
-    <div class="row" style="margin-top:8px"><input id="new-task" placeholder="添加一个验证项…" maxlength="80"><button data-action="add-task">添加</button></div>
-    <p class="tiny">点击验证项可切换「待收集 / 已记录」。在线检索：演示版与正式版均不含自动联网检索（正式版提供 AI 检索指引 + 你登记真实来源）。</p>
-  </div>
-  <div class="stack">
-    <button class="primary" data-action="gen-final">生成最终评估（演示版）</button>
-    <button data-nav="chat">返回想法对话</button>
-  </div>`;
-}
-
-function viewFinal(p) {
-  const f = flags(p);
-  const last = p.finalHistory[p.finalHistory.length - 1];
-  const cls = { "可小范围落地": "ok", "需要补充验证": "note", "建议搁置": "warn" };
-  return `
-  <div class="eyebrow">4 / 最终评估</div>
-  <h1>最终评估</h1>
-  ${f.hasFinal ? `
-    <div class="box verdict ${cls[last.verdict] || ""}">
-      <span class="tag">最新评估 · ${new Date(last.at).toLocaleString("zh-CN")}</span>
-      <h2>${esc(last.verdict)}</h2>
-      <p class="muted">${esc(last.reason)}</p>
-      <p class="tiny">演示版 · 简化规则判断（基于验证清单完成度）；正式版由 AI 综合六维分析与全部输入给出详细论证。</p>
-    </div>
-    <div class="stack"><button data-action="gen-final">重新生成评估</button></div>`
-  : `<div class="box soft"><span class="tag">尚未生成</span><p class="muted">在阶段 3 记录验证信息后，这里生成「建议搁置 / 需要补充验证 / 可小范围落地」三选一评估。</p></div>
-    <div class="stack"><button class="primary" data-action="gen-final">生成评估（演示版）</button></div>`}
-  ${p.finalHistory.length > 1 ? `<details><summary>历史评估（${p.finalHistory.length} 份，均保留）</summary>${p.finalHistory.slice(0, -1).reverse().map(h => `<p class="tiny">${new Date(h.at).toLocaleString("zh-CN")} · ${esc(h.verdict)}</p>`).join("")}</details>` : ""}
-  <div class="stack"><button data-nav="analysis">返回分析与验证</button><button data-nav="archive">查看个人档案</button></div>`;
-}
-
 function viewArchive() {
   const cards = S.projects.slice().sort((a, b) => b.updatedAt - a.updatedAt);
   const sel = cur() || cards[0] || null;
@@ -313,7 +250,7 @@ function viewArchive() {
     <details><summary>历史评估</summary>${sel.finalHistory.length ? sel.finalHistory.slice().reverse().map(h => `<p class="tiny">${new Date(h.at).toLocaleString("zh-CN")} · ${esc(h.verdict)}</p>`).join("") : '<p class="tiny">尚未生成评估。</p>'}</details>
   </div>` : ""}
   <div class="box soft">
-    <span class="tag">演示数据</span>
+    <span class="tag">本机数据</span>
     <p class="tiny">项目同时保存到本机 data/projects.json 和浏览器。请定期导出备份；没有多设备云同步。</p>
     <button class="danger" data-action="reset-data">清空本机项目记录</button>
   </div>`;
@@ -325,6 +262,7 @@ function baseRender() {
   document.querySelectorAll(".app-footer button").forEach(b => b.classList.toggle("active", b.dataset.nav === VIEW));
   renderSwitch();
   const main = $("#main");
+  if ((config && !config.configured) || forceSetup) { main.innerHTML = viewSetup(); window.scrollTo(0, 0); return; }
   const p = cur();
   if (VIEW === "home") main.innerHTML = viewHome();
   else if (VIEW === "archive") main.innerHTML = viewArchive();
@@ -466,12 +404,12 @@ function legacyActions(act, el) {
       break;
     }
     case "reset-data": {
-      if (window.confirm("清空本浏览器中的全部演示数据？不可恢复。")) {
+      if (window.confirm("清空本机全部项目数据？不可恢复。")) {
         localStorage.removeItem(LS_KEY);
         S = loadState();
         VIEW = "home";
         render();
-        toast("演示数据已重置");
+        toast("本机数据已重置");
       }
       break;
     }
@@ -514,7 +452,20 @@ function context(p){return {projectId:p.id,profile:p.profile.current?.json||{},m
 async function ai(p,kind,input){return (await post('/api/ai',{kind,input,requestId:crypto.randomUUID()})).result;}
 function invalidate(p,upstream=true){p.reportStale=!!p.finalHistory.length;if(upstream)p.analysisStale=!!p.analysis;}
 function render(){baseRender();const p=cur();if(p&&busy.has(p.id)){$('#main').insertAdjacentHTML('afterbegin','<p class="box soft" role="status">DeepSeek 正在处理此想法…可以切换其他档案，结果只写回原项目。</p>');$('#main').querySelectorAll('input,textarea,button').forEach(e=>e.disabled=true);}updateSave();}
-function viewHome(){const cards=S.projects.slice().sort((a,b)=>b.updatedAt-a.updatedAt);return `<h1>让你的想法，<br>一步步有戏。</h1><p class="muted">从个人经历到真实验证，DeepSeek 帮你梳理下一步。</p><div class="stack"><button class="primary" data-action="new">＋ 开始一个新想法</button></div><h2>最近的想法</h2>${cards.slice(0,3).map(cardHtml).join('')||'<p>从第一个想法开始。</p>'}<div class="box soft"><p>资料解析、对话、六维分析与评估已接入 DeepSeek。联网研究尚未接入，可自行登记公开来源。</p><p class="tiny">文件文字在本机提取，点击 AI 按钮时才发送当前相关内容至 DeepSeek。切换页面与档案不产生模型调用。</p><p class="tiny">默认每日最多30次请求，单次输出有限；这不是人民币费用硬上限。余额以 DeepSeek 账户为准。</p></div><button data-action="export">导出全部项目备份</button>`;}
+function viewSetup(){
+  const has = !!(config && config.configured);
+  return `<div class="eyebrow">首次使用</div>
+  <h1>配置 DeepSeek API Key</h1>
+  <p class="muted">本项目不内置任何密钥。请粘贴你自己的 DeepSeek API Key（在 platform.deepseek.com 的 API Keys 页面创建）。Key 只会写入本机 .env 文件：不进 Git 仓库，也不会发送给 DeepSeek 以外的任何一方。</p>
+  <label class="field">DeepSeek API Key<input id="key-input" type="text" autocomplete="off" spellcheck="false" placeholder="sk-..." maxlength="120"></label>
+  <div class="stack">
+    <button class="primary" data-action="save-key">保存到本机 .env</button>
+    ${has ? '<button data-action="cancel-setup">取消</button>' : ''}
+  </div>
+  <p class="tiny">保存后即可使用解析、对话、分析与评估；也可以改为直接编辑 .env 填写 DEEPSEEK_API_KEY 后重启。文件解析在本机进行，点击 AI 按钮时相关内容才会发送给 DeepSeek。</p>
+  ${has ? '' : '<p class="tiny">暂时没有 Key 也可以浏览界面；运行 python -m unittest discover -s tests 可验证服务逻辑，不消耗额度。</p>'}`;
+}
+function viewHome(){const cards=S.projects.slice().sort((a,b)=>b.updatedAt-a.updatedAt);return `<h1>让你的想法，<br>一步步有戏。</h1><p class="muted">从个人经历到真实验证，DeepSeek 帮你梳理下一步。</p><div class="stack"><button class="primary" data-action="new">＋ 开始一个新想法</button></div><h2>最近的想法</h2>${cards.slice(0,3).map(cardHtml).join('')||'<p>从第一个想法开始。</p>'}<div class="box soft"><p>资料解析、对话、六维分析与评估已接入 DeepSeek。联网研究尚未接入，可自行登记公开来源。</p><p class="tiny">文件文字在本机提取，点击 AI 按钮时才发送当前相关内容至 DeepSeek。切换页面与档案不产生模型调用。</p><p class="tiny">默认每日最多30次请求，单次输出有限；这不是人民币费用硬上限。余额以 DeepSeek 账户为准。</p></div><button data-action="export">导出全部项目备份</button><button data-action="setup-key">更换 DeepSeek Key</button>`;}
 function viewAnalysis(p){if(!p.idea.current)return '<p>请先完成对话并生成想法摘要。</p>';const a=p.analysis;return `<div class="eyebrow">3 / 分析与验证</div><h1>${esc(p.title)}</h1>${p.analysisStale?'<p class="box">想法或画像已变更，下方旧分析需更新。</p>':''}<div class="stack"><button class="primary" data-action="analyze">${a?'更新':'生成'} DeepSeek 六维分析</button></div>${p.analysisHistory?.length?`<details><summary>历史分析与验证记录（${p.analysisHistory.length}份）</summary>${p.analysisHistory.map(h=>`<pre>${esc(JSON.stringify(h,null,2))}</pre>`).join('')}</details>`:''}${a?`<div class="box soft">${esc(a.overview||'旧版导入记录，请更新分析')}</div><details><summary>六维分析</summary>${(a.dimensions||[]).map(d=>`<h3>${esc(d.name)}</h3><p>${esc(d.finding)}</p><p class="tiny">依据：${esc(d.evidence)}<br>待确认：${esc(d.unknown)}</p>`).join('')}</details><h2>验证任务</h2>${a.tasks.map((t,i)=>`<details><summary>${esc(t.id||'T'+(i+1))} · ${esc(t.text)} · ${t.finding?'已填写':'待验证'}</summary><p class="tiny">${t.owner==='ai_research'?'公开研究（当前未接检索，需自行查证）':'由你实际探索'}</p><p>假设：${esc(t.hypothesis||'')}</p><p>${esc(t.method||'')}</p><p class="tiny">所需证据：${esc(t.requiredEvidence||'请记录实际发现，不能只打勾')}</p><label class="field">发现、原话或具体行为<textarea rows="4" data-task="${i}" data-prop="finding">${esc(t.finding||'')}</textarea></label><label class="field">来源链接或出处（未自动核验）<textarea rows="2" data-task="${i}" data-prop="sources">${esc(t.sources||'')}</textarea></label><label class="field">你的暂定理解<select data-task="${i}" data-prop="signal">${['仍不确定','支持','不支持'].map(v=>`<option ${t.signal===v?'selected':''}>${v}</option>`).join('')}</select></label></details>`).join('')}<div class="stack"><button class="primary" data-action="gen-final">综合全部内容，生成评估</button></div>`:''}<p class="tiny">未填完也可评估，但报告必须指出证据缺口。切换档案会保留已填写内容。</p>`;}
 function reportHtml(r){return `<div class="box"><h2>${esc(r.verdict)}</h2><p>${esc(r.reason)}</p>${(r.findings||[]).map(f=>`<p>${esc(f.claim)} <small>［${esc(f.evidenceIds.join('、'))}］</small><br><span class="tiny">${esc(f.uncertainty)}</span></p>`).join('')}<h3>风险与未知</h3><ul>${[...(r.risks||[]),...(r.unknowns||[])].map(x=>`<li>${esc(x)}</li>`).join('')}</ul><h3>下一步</h3><ul>${(r.nextSteps||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;}
 function viewFinal(p){const r=p.finalHistory.at(-1);return `<div class="eyebrow">4 / 最终评估</div><h1>${esc(p.title)}</h1>${p.reportStale?'<p class="box">输入已有变化，此报告已过期。请重新生成。</p>':''}${r?reportHtml(r):'<p>尚未生成报告。</p>'}<div class="stack"><button class="primary" data-action="gen-final">${r?'重新生成':'生成'} DeepSeek 评估</button><button data-nav="analysis">返回补充验证</button><button data-action="shelve">我选择搁置并保留档案</button></div>${p.finalHistory.length>1?`<details><summary>历史完整报告（${p.finalHistory.length-1}份）</summary>${p.finalHistory.slice(0,-1).reverse().map(h=>`<details><summary>${new Date(h.at).toLocaleString()} · ${esc(h.verdict)}</summary>${reportHtml(h)}<pre>${esc(JSON.stringify(h.snapshot||{},null,2))}</pre></details>`).join('')}</details>`:''}<p class="tiny">AI建议供你判断；可小范围落地不代表创业成功保证。</p>`;}
@@ -523,6 +474,9 @@ viewUpload=function(p){let html=originalViewUpload(p);if(p.profile.draft&&p.prof
 const originalViewChat=viewChat;
 viewChat=function(p){const original=p.idea.current;if(p.summaryDraft&&original)p.idea.current={...original,json:p.summaryDraft};let html=originalViewChat(p);p.idea.current=original;if(p.idea.history.length)html+=`<details><summary>历史想法摘要</summary>${p.idea.history.map(x=>`<pre>${esc(JSON.stringify(x.json,null,2))}</pre>`).join('')}</details>`;return html;};
 async function actions(act,el){const p=cur();if(act==='export'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}));a.download='youxi-projects.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);return;}
+ if(act==='setup-key'){forceSetup=true;render();return;}
+ if(act==='cancel-setup'){forceSetup=false;render();return;}
+ if(act==='save-key'){const v=($('#key-input')?.value||'').trim();if(!v)return toast('请先粘贴 Key（sk- 开头）');try{await post('/api/key',{key:v});if(config)config.configured=true;forceSetup=false;render();toast('Key 已保存到本机 .env，仅本机可见');}catch(e){toast(e.message);}return;}
  if(act==='shelve'){p.status='已搁置';touch(p);save();navigate('archive');return;}
  if(p&&busy.has(p.id)&&!['new','open','stage-goto'].includes(act)){toast('本项目正在处理，请稍后');return;}
  if(['parse','start-chat','send','gen-summary','analyze','gen-final'].includes(act)){
@@ -554,7 +508,8 @@ document.addEventListener('input',e=>{const p=cur();if(!p||busy.has(p.id))return
  if(e.target.id.startsWith('s-')&&p.idea.current){p.summaryDraft??=clone(p.idea.current.json);const k=e.target.id.slice(2);p.summaryDraft[k]=['assumptions','unknowns'].includes(k)?e.target.value.split('\n').filter(Boolean):e.target.value;save();}
  if(e.target.dataset.task!==undefined){const t=p.analysis.tasks[+e.target.dataset.task];t[e.target.dataset.prop]=e.target.value;t.status=t.finding.trim()?'recorded':'待收集';invalidate(p,false);touch(p);save();}
 });
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='key-input'){e.preventDefault();actions('save-key',e.target);}});
 document.addEventListener('change',async e=>{if(e.target.id!=='file-input')return;const p=cur(),f=e.target.files?.[0];if(!f||!p)return;if(f.size>3*1024*1024)return toast('文件最多3MB');try{const bytes=new Uint8Array(await f.arrayBuffer());let raw='';for(let i=0;i<bytes.length;i+=8192)raw+=String.fromCharCode(...bytes.subarray(i,i+8192));const result=await post('/api/extract',{name:f.name,data:btoa(raw)});files.set(p.id,{name:f.name,text:result.text});p.fileDraft={name:f.name,text:result.text};if(cur()?.id===p.id){tempFile=files.get(p.id);render();}save();toast('已在本机提取文字；点击解析才会发送给DeepSeek');}catch(err){toast(err.message);}});
 window.addEventListener('pagehide',()=>{browserSave();if(token)fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json','X-Youxi-Token':token},body:JSON.stringify(S),keepalive:true}).catch(()=>{});});
-async function boot(){try{config=await(await fetch('/api/config')).json();token=config.csrf;if(!token)throw Error('本地服务未就绪');const res=await fetch('/api/state');const stored=await res.json();if(!res.ok)throw Error(stored.error);if(stored?.projects)S=stored;for(const p of S.projects){if(p.fileDraft)files.set(p.id,p.fileDraft);if(p.analysis)p.analysis.tasks.forEach((t,i)=>{t.id??='T'+(i+1);t.finding??='';t.sources??='';});}tempFile=files.get(S.currentId)||null;saveStatus='已连接本机存储';render();if(!config.configured)toast('尚未配置DeepSeek密钥');}catch(e){$('#main').innerHTML='<h1>请从本地服务启动</h1><p>'+esc(e.message)+'</p><p>运行项目中的 start.command，不要直接打开HTML。</p>';}}
+async function boot(){try{config=await(await fetch('/api/config')).json();token=config.csrf;if(!token)throw Error('本地服务未就绪');const res=await fetch('/api/state');const stored=await res.json();if(!res.ok)throw Error(stored.error);if(stored?.projects)S=stored;for(const p of S.projects){if(p.fileDraft)files.set(p.id,p.fileDraft);if(p.analysis)p.analysis.tasks.forEach((t,i)=>{t.id??='T'+(i+1);t.finding??='';t.sources??='';});}tempFile=files.get(S.currentId)||null;saveStatus='已连接本机存储';render();}catch(e){$('#main').innerHTML='<h1>请从本地服务启动</h1><p>'+esc(e.message)+'</p><p>运行项目中的 start.command，不要直接打开HTML。</p>';}}
 boot();

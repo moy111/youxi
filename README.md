@@ -10,17 +10,16 @@
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env  # 仅首次配置；已有 .env 时不要覆盖
-# 在 .env 中填写自己的 DEEPSEEK_API_KEY
 python server.py
 ```
 
-打开 http://127.0.0.1:8765 。不能再直接双击 index.html：真实AI需要本地服务保管密钥。
+打开 http://127.0.0.1:8765 ，首次使用在页面粘贴自己的 DeepSeek API Key，本地服务会写入 `.env`（也可复制 `.env.example` 为 `.env` 手动填写后再启动）。不能再直接双击 index.html：真实AI需要本地服务保管密钥。
 
 本机启动脚本也会在没有虚拟环境时尝试已安装的 Codex Python 运行时；其他电脑按上面的标准步骤安装即可。浏览器需要支持 fetch、crypto.randomUUID、structuredClone 的现代版本。
 
 ## 已接入
 
+- 首次运行的 Key 配置页：页面粘贴即写入本机 `.env`，仓库与页面均不包含任何密钥。
 - DeepSeek 解析个人介绍或提取后的文件文本。
 - 基于画像、历史及本次输入的真实对话；三轮后生成摘要，也纳入后续补充。
 - 六维分析及动态验证任务。
@@ -38,7 +37,7 @@ python server.py
 
 ## 密钥、数据与费用
 
-- 密钥只在根目录 `.env`，浏览器通过本机接口调用；静态文件服务采用允许列表，不会提供 `.env`、源码或数据文件。
+- 密钥只在根目录 `.env`（首次打开页面时粘贴保存，或手动编辑），浏览器通过本机接口调用；静态文件服务采用允许列表，不会提供 `.env`、源码或数据文件。
 - 文件/个人介绍在点击AI按钮后会发送给DeepSeek处理；文件提取本身在本机进行。
 - 项目存于 `data/projects.json`，上次写入备份为 `data/projects.backup.json`，浏览器另有草稿副本。定期点击导出备份。
 - `.env`、`data/`、虚拟环境均被 `.gitignore` 排除。不要把简历原件、密钥、个人档案或导出的真实用户备份提交到仓库。
