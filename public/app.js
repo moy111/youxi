@@ -76,15 +76,17 @@ function flags(p) {
   const rounds = p.messages.filter(m => m.round).length;
   const userMsgs = p.messages.filter(m => m.role === "user").length;
   const tasks = (p.analysis && p.analysis.tasks) || [];
-  const allRecorded = tasks.length > 0 && tasks.every(t => t.status === "recorded");
+  const userTasks = tasks.filter(t => t.owner !== "ai_research");
+  const allRecorded = userTasks.length > 0 && userTasks.every(t => t.status === "recorded");
   const hasFinal = p.finalHistory.length > 0;
-  return { confirmed, hasProfile, hasIdea, rounds, userMsgs, tasks, allRecorded, hasFinal, status: p.status };
+  return { confirmed, hasProfile, hasIdea, rounds, userMsgs, tasks, userTasks, allRecorded, hasFinal, status: p.status };
 }
 function phaseStatus(f) {
   if (f.status === "已搁置") return "已搁置 · 保留所有记录";
   if (f.hasFinal) return "最终评估已生成";
   if (f.allRecorded) return "验证信息已齐";
-  if (f.tasks.length) return `验证中 · ${f.tasks.filter(t => t.status === "recorded").length}/${f.tasks.length} 项已记录`;
+  if (f.userTasks.length) return `验证中 · ${f.userTasks.filter(t => t.status === "recorded").length}/${f.userTasks.length} 项已记录`;
+  if (f.tasks.length) return "分析已生成 · 请核对AI检索结果";
   if (f.hasIdea) return "想法已总结";
   if (f.rounds > 0) return `想法对话 · ${Math.min(f.rounds, 3)}/3 轮`;
   if (f.confirmed) return "画像已确认 · 待开始对话";
@@ -97,7 +99,7 @@ function nextStep(f) {
   if (f.rounds < 3) return `继续第 ${f.rounds + 1} 轮对话`;
   if (!f.hasIdea) return "生成想法摘要";
   if (!f.tasks.length) return "查看分析与验证清单";
-  if (!f.allRecorded) return `记录验证信息（${f.tasks.filter(t => t.status === "recorded").length}/${f.tasks.length}）`;
+  if (f.userTasks.length && !f.allRecorded) return `记录验证信息（${f.userTasks.filter(t => t.status === "recorded").length}/${f.userTasks.length}）`;
   if (!f.hasFinal) return "生成最终评估";
   return "回看最终评估";
 }
@@ -107,7 +109,7 @@ function trackHtml(f) {
   const sub = [
     f.confirmed ? "已完成" : (f.hasProfile ? "进行中" : "未开始"),
     f.hasIdea ? "已完成" : (f.confirmed ? "进行中" : "未开始"),
-    f.tasks.length ? `${f.tasks.filter(t => t.status === "recorded").length}/${f.tasks.length} 已记录` : (f.hasIdea ? "待收集" : "未开始"),
+    f.userTasks.length ? `${f.userTasks.filter(t => t.status === "recorded").length}/${f.userTasks.length} 已记录` : (f.tasks.length ? "核对AI检索" : (f.hasIdea ? "待收集" : "未开始")),
     f.hasFinal ? "已完成" : (f.hasIdea ? "可生成" : "未开始"),
   ];
   const names = ["资料", "对话", "验证", "评估"];
@@ -178,12 +180,16 @@ const SUMMARY_FIELDS = [
 ];
 function viewChat(p) {
   const f = flags(p);
-  const msgs = p.messages.map(m => {
+  let lastAi = -1;
+  p.messages.forEach((m, i) => { if (m.role === "assistant") lastAi = i; });
+  const msgs = p.messages.map((m, i) => {
     const cls = m.role === "user" ? "user" : "ai";
     const tag = m.role === "user"
       ? (m.round ? `<span class="round-tag">第 ${m.round} 轮</span>` : (p.messages.some(x => x.round) ? `<span class="round-tag">补充</span>` : ""))
-      : (m.isOpening ? `<span class="round-tag">开场提问</span>` : "");
-    return `<div class="msg ${cls}">${tag}<div class="bubble">${esc(m.content)}</div></div>`;
+      : (m.isOpening ? `<span class="round-tag">开场</span>` : "");
+    const chips = (i === lastAi && m.role === "assistant" && Array.isArray(m.options) && m.options.length && !busy.has(p.id))
+      ? `<div class="chips">${m.options.map((o, j) => `<button class="chip" data-chip="${j}">${esc(o)}</button>`).join("")}</div>` : "";
+    return `<div class="msg ${cls}">${tag}<div class="bubble">${esc(m.content)}</div>${chips}</div>`;
   }).join("");
   const idea = p.idea.current;
   const ideaBox = idea ? `
@@ -200,6 +206,7 @@ function viewChat(p) {
   <div class="eyebrow">2 / 想法对话</div>
   <h1>${esc(p.title)}</h1>
   <p class="muted">三轮对话把想法聊清楚。已完成 ${f.rounds}/3 轮${f.userMsgs > f.rounds ? `（补充 ${f.userMsgs - f.rounds} 条）` : ""}。回复由 DeepSeek 生成；草稿保存在本机。</p>
+  <p class="tiny">不确定也没关系：AI 会基于你的背景给出候选方向，点一下就能选，之后随时可以换。</p>
   <div class="chat-list">${msgs || '<p class="muted">确认画像后，开始第一轮对话。</p>'}</div>
   ${!p.messages.length && f.confirmed ? '<div class="stack"><button class="primary" data-action="start-chat">开始对话</button></div>' : ""}
   ${f.confirmed ? `
@@ -221,7 +228,7 @@ function viewArchive() {
   const stages = [
     ["个人资料", () => true, f => f.confirmed ? "画像已确认" : f.hasProfile ? "已解析，待确认" : "尚未开始"],
     ["想法对话", f => f.confirmed, f => f.rounds > 0 ? `${f.rounds} 轮对话${f.userMsgs > f.rounds ? `（补充 ${f.userMsgs - f.rounds} 条）` : ""}` : "尚未开始"],
-    ["分析与验证", f => f.hasIdea, f => f.tasks.length ? `${f.tasks.filter(t => t.status === "recorded").length}/${f.tasks.length} 项已记录` : (f.hasIdea ? "清单待整理" : "先完成三轮对话")],
+    ["分析与验证", f => f.hasIdea, f => f.userTasks.length ? `${f.userTasks.filter(t => t.status === "recorded").length}/${f.userTasks.length} 项已记录` : (f.tasks.length ? "核对AI检索结果" : (f.hasIdea ? "清单待整理" : "先完成三轮对话"))],
     ["最终评估", f => f.hasIdea, f => f.hasFinal ? "已生成" : "可生成"],
   ];
   return `
@@ -271,7 +278,8 @@ function baseRender() {
   else if (VIEW === "chat") main.innerHTML = viewChat(p);
   else if (VIEW === "analysis") main.innerHTML = viewAnalysis(p);
   else if (VIEW === "final") main.innerHTML = viewFinal(p);
-  window.scrollTo(0, 0);
+  if (VIEW === "chat") window.scrollTo(0, document.documentElement.scrollHeight);
+  else window.scrollTo(0, 0);
 }
 function renderSwitch() {
   const sel = $("#project-select");
@@ -420,6 +428,19 @@ function legacyActions(act, el) {
 document.addEventListener("click", e => {
   const nav = e.target.closest("[data-nav]");
   if (nav) { navigate(nav.dataset.nav); return; }
+  const chip = e.target.closest(".chip");
+  if (chip) {
+    const p = cur();
+    if (!p) return;
+    if (busy.has(p.id)) { toast("AI 正在回复，请稍候"); return; }
+    let lastAi = -1;
+    p.messages.forEach((m, i) => { if (m.role === "assistant") lastAi = i; });
+    const opt = p.messages[lastAi] && p.messages[lastAi].options && p.messages[lastAi].options[+chip.dataset.chip];
+    if (!opt) return;
+    p.chatDraft = opt;
+    actions("send", chip);
+    return;
+  }
   const act = e.target.closest("[data-action]");
   if (act) { actions(act.dataset.action, act); }
 });
@@ -448,10 +469,11 @@ function save(){browserSave();saveStatus='保存中';clearTimeout(saveTimer);sav
 function syncState(){clearTimeout(saveTimer);const snapshot=JSON.stringify(S);saveChain=saveChain.catch(()=>{}).then(async()=>{await post('/api/state',JSON.parse(snapshot));saveStatus='已保存到本机';updateSave();}).catch(e=>{saveStatus='未同步：'+e.message;updateSave();});return saveChain;}
 function updateSave(){const e=$('#save-status');if(e)e.textContent=saveStatus;}
 async function post(url,data){const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Youxi-Token':token},body:JSON.stringify(data)});const json=await res.json();if(!res.ok)throw Error(json.error||'本地请求失败');return json;}
-function context(p){return {projectId:p.id,profile:p.profile.current?.json||{},messages:p.messages,idea:p.idea.current?.json||{},analysis:p.analysis||{},researchNotice:'未接入在线搜索；来源是用户登记，未经系统检索核验。'};}
+function context(p){return {projectId:p.id,profile:p.profile.current?.json||{},messages:p.messages.map(m=>({role:m.role,content:m.content})),idea:p.idea.current?.json||{},analysis:p.analysis||{},researchNotice:'ai_research任务的searchResults为机器检索结果，未经人工核验；sources为系统或用户登记。'};}
 async function ai(p,kind,input){return (await post('/api/ai',{kind,input,requestId:crypto.randomUUID()})).result;}
+async function runResearch(p,onlyIdx){if(!(config&&config.search&&config.search.provider)||!p.analysis)return;let n=0;for(let i=0;i<p.analysis.tasks.length;i++){const t=p.analysis.tasks[i];if(t.owner!=='ai_research')continue;if(onlyIdx!==undefined&&i!==onlyIdx)continue;if(onlyIdx===undefined&&n>=3)break;n++;t.searchStatus='检索中';if(cur()?.id===p.id)render();try{const q=((p.idea.current&&p.idea.current.json.title?p.idea.current.json.title+' ':'')+t.text).slice(0,180);const res=await post('/api/search',{query:q});t.searchResults=res.results;t.searchStatus='done';t.searchError='';}catch(e){t.searchStatus='failed';t.searchError=e.message;}touch(p);save();}}
 function invalidate(p,upstream=true){p.reportStale=!!p.finalHistory.length;if(upstream)p.analysisStale=!!p.analysis;}
-function render(){baseRender();const p=cur();if(p&&busy.has(p.id)){$('#main').insertAdjacentHTML('afterbegin','<p class="box soft" role="status">DeepSeek 正在处理此想法…可以切换其他档案，结果只写回原项目。</p>');$('#main').querySelectorAll('input,textarea,button').forEach(e=>e.disabled=true);}updateSave();}
+function render(){baseRender();const p=cur();if(p&&busy.has(p.id)){const list=document.querySelector('.chat-list');if(VIEW==='chat'&&list){list.insertAdjacentHTML('beforeend','<div class="msg ai typing" role="status"><div class="bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>');const sb=document.querySelector('[data-action="send"]');if(sb)sb.textContent='回复中…';window.scrollTo(0,document.documentElement.scrollHeight);}else{$('#main').insertAdjacentHTML('afterbegin','<p class="box soft" role="status">DeepSeek 正在处理此想法…可以切换其他档案，结果只写回原项目。</p>');}$('#main').querySelectorAll('input,textarea,button').forEach(e=>e.disabled=true);}updateSave();}
 function viewSetup(){
   const has = !!(config && config.configured);
   return `<div class="eyebrow">首次使用</div>
@@ -465,8 +487,18 @@ function viewSetup(){
   <p class="tiny">保存后即可使用解析、对话、分析与评估；也可以改为直接编辑 .env 填写 DEEPSEEK_API_KEY 后重启。文件解析在本机进行，点击 AI 按钮时相关内容才会发送给 DeepSeek。</p>
   ${has ? '' : '<p class="tiny">暂时没有 Key 也可以浏览界面；运行 python -m unittest discover -s tests 可验证服务逻辑，不消耗额度。</p>'}`;
 }
-function viewHome(){const cards=S.projects.slice().sort((a,b)=>b.updatedAt-a.updatedAt);return `<h1>让你的想法，<br>一步步有戏。</h1><p class="muted">从个人经历到真实验证，DeepSeek 帮你梳理下一步。</p><div class="stack"><button class="primary" data-action="new">＋ 开始一个新想法</button></div><h2>最近的想法</h2>${cards.slice(0,3).map(cardHtml).join('')||'<p>从第一个想法开始。</p>'}<div class="box soft"><p>资料解析、对话、六维分析与评估已接入 DeepSeek。联网研究尚未接入，可自行登记公开来源。</p><p class="tiny">文件文字在本机提取，点击 AI 按钮时才发送当前相关内容至 DeepSeek。切换页面与档案不产生模型调用。</p><p class="tiny">默认每日最多30次请求，单次输出有限；这不是人民币费用硬上限。余额以 DeepSeek 账户为准。</p></div><button data-action="export">导出全部项目备份</button><button data-action="setup-key">更换 DeepSeek Key</button>`;}
-function viewAnalysis(p){if(!p.idea.current)return '<p>请先完成对话并生成想法摘要。</p>';const a=p.analysis;return `<div class="eyebrow">3 / 分析与验证</div><h1>${esc(p.title)}</h1>${p.analysisStale?'<p class="box">想法或画像已变更，下方旧分析需更新。</p>':''}<div class="stack"><button class="primary" data-action="analyze">${a?'更新':'生成'} DeepSeek 六维分析</button></div>${p.analysisHistory?.length?`<details><summary>历史分析与验证记录（${p.analysisHistory.length}份）</summary>${p.analysisHistory.map(h=>`<pre>${esc(JSON.stringify(h,null,2))}</pre>`).join('')}</details>`:''}${a?`<div class="box soft">${esc(a.overview||'旧版导入记录，请更新分析')}</div><details><summary>六维分析</summary>${(a.dimensions||[]).map(d=>`<h3>${esc(d.name)}</h3><p>${esc(d.finding)}</p><p class="tiny">依据：${esc(d.evidence)}<br>待确认：${esc(d.unknown)}</p>`).join('')}</details><h2>验证任务</h2>${a.tasks.map((t,i)=>`<details><summary>${esc(t.id||'T'+(i+1))} · ${esc(t.text)} · ${t.finding?'已填写':'待验证'}</summary><p class="tiny">${t.owner==='ai_research'?'公开研究（当前未接检索，需自行查证）':'由你实际探索'}</p><p>假设：${esc(t.hypothesis||'')}</p><p>${esc(t.method||'')}</p><p class="tiny">所需证据：${esc(t.requiredEvidence||'请记录实际发现，不能只打勾')}</p><label class="field">发现、原话或具体行为<textarea rows="4" data-task="${i}" data-prop="finding">${esc(t.finding||'')}</textarea></label><label class="field">来源链接或出处（未自动核验）<textarea rows="2" data-task="${i}" data-prop="sources">${esc(t.sources||'')}</textarea></label><label class="field">你的暂定理解<select data-task="${i}" data-prop="signal">${['仍不确定','支持','不支持'].map(v=>`<option ${t.signal===v?'selected':''}>${v}</option>`).join('')}</select></label></details>`).join('')}<div class="stack"><button class="primary" data-action="gen-final">综合全部内容，生成评估</button></div>`:''}<p class="tiny">未填完也可评估，但报告必须指出证据缺口。切换档案会保留已填写内容。</p>`;}
+function viewHome(){const cards=S.projects.slice().sort((a,b)=>b.updatedAt-a.updatedAt);return `<h1>让你的想法，<br>一步步有戏。</h1><p class="muted">从个人经历到真实验证，DeepSeek 帮你梳理下一步。</p><div class="stack"><button class="primary" data-action="new">＋ 开始一个新想法</button></div><h2>最近的想法</h2>${cards.slice(0,3).map(cardHtml).join('')||'<p>从第一个想法开始。</p>'}<div class="box soft"><p>${config&&config.search&&config.search.provider?'资料解析、对话、六维分析、评估与公开检索已接入 DeepSeek；检索结果未经人工核验。':'资料解析、对话、六维分析与评估已接入 DeepSeek。联网检索未配置，可自行登记公开来源。'}</p><p class="tiny">文件文字在本机提取，点击 AI 按钮时才发送当前相关内容至 DeepSeek。切换页面与档案不产生模型调用。</p><p class="tiny">模型请求数默认不限（.env 的 DAILY_REQUEST_LIMIT 可设上限）；余额与扣费以 DeepSeek 账户为准。</p></div><button data-action="export">导出全部项目备份</button><button data-action="setup-key">更换 DeepSeek Key</button>`;}
+function viewAnalysis(p){if(!p.idea.current)return '<p>请先完成对话并生成想法摘要。</p>';const a=p.analysis;
+ if(!a)return `<div class="eyebrow">3 / 分析与验证</div><h1>${esc(p.title)}</h1><div class="stack"><button class="primary" data-action="analyze">生成 DeepSeek 六维分析</button></div><p class="tiny">分析会把任务分成两类：「需要你亲自验证」和「AI 可公开检索」，让你把时间花在最关键的地方。</p>${p.analysisHistory?.length?`<details><summary>历史分析与验证记录（${p.analysisHistory.length}份）</summary>${p.analysisHistory.map(h=>`<pre>${esc(JSON.stringify(h,null,2))}</pre>`).join('')}</details>`:''}`;
+ const userTasks=a.tasks.map((t,i)=>[t,i]).filter(x=>x[0].owner!=='ai_research');
+ const aiTasks=a.tasks.map((t,i)=>[t,i]).filter(x=>x[0].owner==='ai_research');
+ const aiDone=aiTasks.filter(x=>x[0].searchStatus==='done').length;
+ const searchOn=!!(config&&config.search&&config.search.provider);
+ return `<div class="eyebrow">3 / 分析与验证</div><h1>${esc(p.title)}</h1>${p.analysisStale?'<p class="box">想法或画像已变更，下方旧分析需更新。</p>':''}<div class="stack"><button class="primary" data-action="analyze">更新 DeepSeek 六维分析</button></div>${p.analysisHistory?.length?`<details><summary>历史分析与验证记录（${p.analysisHistory.length}份）</summary>${p.analysisHistory.map(h=>`<pre>${esc(JSON.stringify(h,null,2))}</pre>`).join('')}</details>`:''}<div class="box soft">${esc(a.overview||'')}</div><details><summary>六维分析</summary>${(a.dimensions||[]).map(d=>`<h3>${esc(d.name)}</h3><p>${esc(d.finding)}</p><p class="tiny">依据：${esc(d.evidence)}<br>待确认：${esc(d.unknown)}</p>`).join('')}</details>
+ <h2>需要你亲自验证</h2><p class="tiny">公开资料查不到的部分：真实客户的原话与行为、真实成本与渠道。AI 检索替代不了这一步，也是整个验证里最值钱的证据。</p>
+ ${userTasks.length?userTasks.map(([t,i])=>`<details><summary>${esc(t.id||'T'+(i+1))} · ${esc(t.text)} · ${t.finding?'已填写':'待验证'}</summary><p>假设：${esc(t.hypothesis||'')}</p><p>${esc(t.method||'')}</p><p class="tiny">所需证据：${esc(t.requiredEvidence||'请记录实际发现，不能只打勾')}</p><label class="field">发现、原话或具体行为<textarea rows="4" data-task="${i}" data-prop="finding">${esc(t.finding||'')}</textarea></label><label class="field">来源链接或出处（未自动核验）<textarea rows="2" data-task="${i}" data-prop="sources">${esc(t.sources||'')}</textarea></label><label class="field">你的暂定理解<select data-task="${i}" data-prop="signal">${['仍不确定','支持','不支持'].map(v=>`<option ${t.signal===v?'selected':''}>${v}</option>`).join('')}</select></label></details>`).join(''):'<p class="muted">本次分析未生成需要亲自验证的任务，可更新分析。</p>'}
+ ${aiTasks.length?`<details ${aiDone<aiTasks.length?'open':''}><summary>AI 公开检索（${aiDone}/${aiTasks.length} 已完成）</summary><p class="tiny">${searchOn?'AI 自动检索公开资料并登记来源与摘录；结果未经人工核验，请点开链接自行确认后再采信。':'检索服务未配置：在 .env 填 TAVILY_API_KEY，或 pip install ddgs 后重启。以下任务需手动查证登记。'}</p>${aiTasks.map(([t,i])=>`<details><summary>${esc(t.id||'T'+(i+1))} · ${esc(t.text)} · ${t.searchStatus==='done'?'✓ 已检索':t.searchStatus==='failed'?'检索失败':t.searchStatus==='检索中'?'检索中…':'待检索'}</summary><p class="tiny">假设：${esc(t.hypothesis||'')}</p><p class="tiny">${esc(t.method||'')}</p>${(t.searchResults||[]).map(r=>`<p class="src"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title||r.url)}</a><br><span class="tiny">${esc(r.snippet||'')}</span></p>`).join('')}${t.searchStatus==='failed'?`<p class="tiny">失败原因：${esc(t.searchError||'')}</p>`:''}${searchOn?`<div class="stack"><button data-action="research-task" data-i="${i}">${t.searchStatus==='done'?'重新检索':'重试检索'}</button></div>`:''}<label class="field">补充来源或笔记<textarea rows="2" data-task="${i}" data-prop="sources">${esc(t.sources||'')}</textarea></label></details>`).join('')}</details>`:''}
+ <div class="stack"><button class="primary" data-action="gen-final">综合全部内容，生成评估</button></div><p class="tiny">未填完也可评估，但报告必须指出证据缺口。切换档案会保留已填写内容。</p>`;}
 function reportHtml(r){return `<div class="box"><h2>${esc(r.verdict)}</h2><p>${esc(r.reason)}</p>${(r.findings||[]).map(f=>`<p>${esc(f.claim)} <small>［${esc(f.evidenceIds.join('、'))}］</small><br><span class="tiny">${esc(f.uncertainty)}</span></p>`).join('')}<h3>风险与未知</h3><ul>${[...(r.risks||[]),...(r.unknowns||[])].map(x=>`<li>${esc(x)}</li>`).join('')}</ul><h3>下一步</h3><ul>${(r.nextSteps||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;}
 function viewFinal(p){const r=p.finalHistory.at(-1);return `<div class="eyebrow">4 / 最终评估</div><h1>${esc(p.title)}</h1>${p.reportStale?'<p class="box">输入已有变化，此报告已过期。请重新生成。</p>':''}${r?reportHtml(r):'<p>尚未生成报告。</p>'}<div class="stack"><button class="primary" data-action="gen-final">${r?'重新生成':'生成'} DeepSeek 评估</button><button data-nav="analysis">返回补充验证</button><button data-action="shelve">我选择搁置并保留档案</button></div>${p.finalHistory.length>1?`<details><summary>历史完整报告（${p.finalHistory.length-1}份）</summary>${p.finalHistory.slice(0,-1).reverse().map(h=>`<details><summary>${new Date(h.at).toLocaleString()} · ${esc(h.verdict)}</summary>${reportHtml(h)}<pre>${esc(JSON.stringify(h.snapshot||{},null,2))}</pre></details>`).join('')}</details>`:''}<p class="tiny">AI建议供你判断；可小范围落地不代表创业成功保证。</p>`;}
 const originalViewUpload=viewUpload;
@@ -478,6 +510,7 @@ async function actions(act,el){const p=cur();if(act==='export'){const a=document
  if(act==='cancel-setup'){forceSetup=false;render();return;}
  if(act==='save-key'){const v=($('#key-input')?.value||'').trim();if(!v)return toast('请先粘贴 Key（sk- 开头）');try{await post('/api/key',{key:v});if(config)config.configured=true;forceSetup=false;render();toast('Key 已保存到本机 .env，仅本机可见');}catch(e){toast(e.message);}return;}
  if(act==='shelve'){p.status='已搁置';touch(p);save();navigate('archive');return;}
+ if(act==='research-task'){if(!p||!p.analysis)return;busy.add(p.id);render();try{await runResearch(p,+el.dataset.i);}finally{busy.delete(p.id);render();}return;}
  if(p&&busy.has(p.id)&&!['new','open','stage-goto'].includes(act)){toast('本项目正在处理，请稍后');return;}
  if(['parse','start-chat','send','gen-summary','analyze','gen-final'].includes(act)){
   if(!p)return;let sendText='',parseInput;
@@ -488,10 +521,10 @@ async function actions(act,el){const p=cur();if(act==='export'){const a=document
   busy.add(p.id);render();
   try{
    if(act==='parse'){const j=await ai(p,'parse',{text:parseInput});if(p.profile.current)p.profile.history.push(clone(p.profile.current));const file=files.get(p.id);p.profile.current={json:j,sourceType:file?'file+bio':'bio',fileName:file?.name||'',rawText:file?.text||'',bio:p.bioDraft,confirmed:false};p.profile.draft=null;invalidate(p);}
-   if(act==='start-chat'){const r=await ai(p,'chat',{...context(p),instruction:'开始第1轮，先提出一个结合个人背景的问题。'});p.messages.push({role:'assistant',content:r.reply,round:null,isOpening:true});}
-   if(act==='send'){const f=flags(p);const msg={role:'user',content:sendText,round:f.rounds<3?f.rounds+1:null};const r=await ai(p,'chat',{...context(p),messages:[...p.messages,msg],round:msg.round,request:'回应最后一条用户消息；三轮后提示可以生成摘要。'});p.messages.push(msg,{role:'assistant',content:r.reply,round:null});p.chatDraft='';invalidate(p);}
+   if(act==='start-chat'){const r=await ai(p,'chat',{...context(p),instruction:'开始第1轮：先简短热情地打招呼，点出画像中2-3个具体亮点，说明接下来用三轮对话帮他确定一个方向并迈出第一步；如有初步方向建议放进options；最后只问一个最关键的问题。'});p.messages.push({role:'assistant',content:r.reply,round:null,isOpening:true,options:Array.isArray(r.options)?r.options:[]});}
+   if(act==='send'){const f=flags(p);const msg={role:'user',content:sendText,round:f.rounds<3?f.rounds+1:null};const r=await ai(p,'chat',{...context(p),messages:[...p.messages,msg],round:msg.round,request:'回应最后一条用户消息。用户含糊、犹豫或想跳过时，基于其背景给出2-3个具体候选方向放入options（各附一句理由），说明选一个先聊、随时可换；用户点选某选项即视为选定该方向，继续深入并推进到下一个关键问题。三轮结束后提示可以生成摘要。'});p.messages.push(msg,{role:'assistant',content:r.reply,round:null,options:Array.isArray(r.options)?r.options:[]});p.chatDraft='';invalidate(p);}
    if(act==='gen-summary'){const r=await ai(p,'summary',context(p));if(p.idea.current)p.idea.history.push(clone(p.idea.current));p.idea.current={json:r,source:'deepseek'};p.idea.version++;p.title=r.title;p.editingSummary=true;p.summaryDraft=null;invalidate(p);}
-   if(act==='analyze'){const r=await ai(p,'analysis',context(p));if(p.analysis)(p.analysisHistory??=[]).push(clone(p.analysis));p.analysis={...r,tasks:r.tasks.map((t,i)=>({...t,id:'T'+(i+1),finding:'',sources:'',signal:'仍不确定',status:'待收集'}))};p.analysisStale=false;p.reportStale=!!p.finalHistory.length;p.stageReached=Math.max(2,p.stageReached);p.resumeStage=2;}
+   if(act==='analyze'){const r=await ai(p,'analysis',context(p));if(p.analysis)(p.analysisHistory??=[]).push(clone(p.analysis));p.analysis={...r,tasks:r.tasks.map((t,i)=>({...t,id:'T'+(i+1),finding:'',sources:'',signal:'仍不确定',status:'待收集',searchStatus:'待检索',searchResults:[],searchError:''}))};p.analysisStale=false;p.reportStale=!!p.finalHistory.length;p.stageReached=Math.max(2,p.stageReached);p.resumeStage=2;await runResearch(p);}
    if(act==='gen-final'){const snap=context(p);const r=await ai(p,'evaluate',snap);p.finalHistory.push({...r,at:now(),snapshot:clone(snap)});p.reportStale=false;p.stageReached=3;p.resumeStage=3;if(cur()?.id===p.id)VIEW='final';}
    touch(p);save();if(cur()?.id===p.id)toast('DeepSeek 已完成，内容已保存');
   }catch(e){toast(e.message+'；输入和旧结果已保留。');}
@@ -511,5 +544,5 @@ document.addEventListener('input',e=>{const p=cur();if(!p||busy.has(p.id))return
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='key-input'){e.preventDefault();actions('save-key',e.target);}});
 document.addEventListener('change',async e=>{if(e.target.id!=='file-input')return;const p=cur(),f=e.target.files?.[0];if(!f||!p)return;if(f.size>3*1024*1024)return toast('文件最多3MB');try{const bytes=new Uint8Array(await f.arrayBuffer());let raw='';for(let i=0;i<bytes.length;i+=8192)raw+=String.fromCharCode(...bytes.subarray(i,i+8192));const result=await post('/api/extract',{name:f.name,data:btoa(raw)});files.set(p.id,{name:f.name,text:result.text});p.fileDraft={name:f.name,text:result.text};if(cur()?.id===p.id){tempFile=files.get(p.id);render();}save();toast('已在本机提取文字；点击解析才会发送给DeepSeek');}catch(err){toast(err.message);}});
 window.addEventListener('pagehide',()=>{browserSave();if(token)fetch('/api/state',{method:'POST',headers:{'Content-Type':'application/json','X-Youxi-Token':token},body:JSON.stringify(S),keepalive:true}).catch(()=>{});});
-async function boot(){try{config=await(await fetch('/api/config')).json();token=config.csrf;if(!token)throw Error('本地服务未就绪');const res=await fetch('/api/state');const stored=await res.json();if(!res.ok)throw Error(stored.error);if(stored?.projects)S=stored;for(const p of S.projects){if(p.fileDraft)files.set(p.id,p.fileDraft);if(p.analysis)p.analysis.tasks.forEach((t,i)=>{t.id??='T'+(i+1);t.finding??='';t.sources??='';});}tempFile=files.get(S.currentId)||null;saveStatus='已连接本机存储';render();}catch(e){$('#main').innerHTML='<h1>请从本地服务启动</h1><p>'+esc(e.message)+'</p><p>运行项目中的 start.command，不要直接打开HTML。</p>';}}
+async function boot(){try{config=await(await fetch('/api/config')).json();token=config.csrf;if(!token)throw Error('本地服务未就绪');const res=await fetch('/api/state');const stored=await res.json();if(!res.ok)throw Error(stored.error);if(stored?.projects)S=stored;for(const p of S.projects){if(p.fileDraft)files.set(p.id,p.fileDraft);if(p.analysis)p.analysis.tasks.forEach((t,i)=>{t.id??='T'+(i+1);t.finding??='';t.sources??='';t.owner??='user';t.searchStatus??=(t.owner==='ai_research'?'待检索':'');t.searchResults??=[];});}tempFile=files.get(S.currentId)||null;saveStatus='已连接本机存储';const bar=document.querySelector('.demo-bar');if(bar)bar.textContent=config.search&&config.search.provider?'DeepSeek 本地版 · AI按钮会调用模型 · AI公开检索已接入（结果未人工核验）':'DeepSeek 本地版 · AI按钮会调用模型 · 公开检索未配置';render();}catch(e){$('#main').innerHTML='<h1>请从本地服务启动</h1><p>'+esc(e.message)+'</p><p>运行项目中的 start.command，不要直接打开HTML。</p>';}}
 boot();

@@ -36,4 +36,16 @@ class Contracts(unittest.TestCase):
    server.ROOT=old_root;server.KEY=old_key;shutil.rmtree(d)
  def test_save_key_rejects_bad(self):
   with self.assertRaises(ValueError):server.save_key('short')
+ def test_chat_options(self):
+  r={'reply':'好','options':['A方向','B方向']}
+  self.assertEqual(server.validate('chat',r)['options'],['A方向','B方向'])
+  self.assertEqual(server.validate('chat',{'reply':'好'})['options'],[])
+  with self.assertRaises(ValueError):server.validate('chat',{'reply':'好','options':[1]})
+  with self.assertRaises(ValueError):server.validate('chat',{'reply':'好','options':['x'*41]})
+ def test_search_off(self):
+  old=server.SEARCH;server.SEARCH='off'
+  try:
+   self.assertIsNone(server.search_provider())
+   with self.assertRaises(ValueError):server.web_search('竞品调研')
+  finally:server.SEARCH=old
 if __name__=='__main__':unittest.main()

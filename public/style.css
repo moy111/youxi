@@ -1,4 +1,4 @@
-/* 有戏 · 纯前端演示版样式（视觉基调与完整版一致：暖白底/深灰字/深青主按钮） */
+/* 有戏 · DeepSeek 本地版样式（暖白底/深灰字/深青主按钮） */
 :root{
   --bg:#ffffff; --fg:#252f29; --sub:#67726b; --soft:#f3f5f2; --line:#e0e5df;
   --key:#355440; --on:#ffffff; --note:#795c34; --danger:#a33d2f; --ok:#2f6b4f;
@@ -77,3 +77,16 @@ summary{cursor:pointer;font-size:13px;color:var(--key);font-weight:600}
 .app-footer button.active{color:var(--key);font-weight:700}
 
 #save-status{padding:6px 14px}pre{white-space:pre-wrap;overflow-wrap:anywhere}select{max-width:100%}.field select{width:100%;padding:8px}button:disabled{opacity:.55;cursor:wait}
+
+.msg.typing .bubble{display:flex;gap:5px;align-items:center;padding:12px 16px}
+.msg.typing .dot{width:7px;height:7px;border-radius:50%;background:var(--sub);animation:blink 1.2s infinite}
+.msg.typing .dot:nth-child(2){animation-delay:.2s}
+.msg.typing .dot:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
+.chat-list .msg:last-child{animation:fadeUp .3s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;max-width:100%}
+.chip{border:1px solid var(--key);color:var(--key);background:#fff;border-radius:999px;padding:8px 14px;font-size:13px}
+.chip:hover{background:rgba(53,84,64,.08)}
+.src{margin:8px 0;font-size:13px}
+.src a{color:var(--key);word-break:break-all}
