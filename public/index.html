@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>有戏 · 创业想法验证（DeepSeek 本地版）</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="app-header">
+    <button class="brand" data-nav="home">有戏</button>
+    <span class="ctx" id="ctx">让想法，一步步有戏。</span>
+    <button class="hdr-link" data-nav="archive">档案</button>
+  </header>
+  <div class="demo-bar">DeepSeek 本地版 · AI按钮会调用模型 · 公开检索尚未接入</div>
+  <div class="project-switch">
+    <label for="project-select">当前想法档案 · 随时切换</label>
+    <select id="project-select"></select>
+    <span class="next" id="next-step"></span>
+  </div>
+  <div id="save-status" class="tiny" role="status">正在连接本地服务</div>
+  <main class="app-main" id="main"></main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <footer class="app-footer">
+    <button data-nav="home">首页</button>
+    <button data-nav="archive">个人档案</button>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
