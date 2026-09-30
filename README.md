@@ -73,7 +73,11 @@ pip install -r requirements.txt
 python server.py
 ```
 
-打开 http://127.0.0.1:8765 ，首次使用在页面粘贴自己的 DeepSeek API Key，本地服务会写入 `.env`（也可复制 `.env.example` 为 `.env` 手动填写后再启动）。不能再直接双击 index.html：真实AI需要本地服务保管密钥。
+打开 http://127.0.0.1:8765 ，首次使用需在页面粘贴 DeepSeek API Key，本地服务会写入 `.env`。
+
+**测试 Key 未上传至 GitHub，已单独提供给小红书项目对接人。**如需本地体验 AI 功能，可联系对接人获取测试 Key，或使用自己的 DeepSeek API Key。
+
+也可复制 `.env.example` 为 `.env` 手动填写后再启动。真实 AI 调用需要本地服务保管密钥，不能直接双击 `index.html` 运行。
 
 若模型调用报 `SSL: CERTIFICATE_VERIFY_FAILED`，说明当前 Python 缺少根证书：先确认已安装 requirements.txt（内含 certifi，服务会自动使用）；仍失败时运行 Python 安装目录下的「Install Certificates.command」。
 
