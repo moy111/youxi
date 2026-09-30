@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local-only Youxi server. No API key or private data is served as a static file."""
-import base64, datetime, hashlib, io, json, os, secrets, ssl, threading, urllib.request, urllib.error
+import base64, concurrent.futures, datetime, hashlib, io, json, os, secrets, ssl, threading, urllib.request, urllib.error
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 ROOT=Path(__file__).resolve().parent
@@ -13,6 +13,7 @@ MODEL=os.environ.get('DEEPSEEK_MODEL','deepseek-flash')
 PORT=int(os.environ.get('PORT','8765'))
 SESSION=secrets.token_urlsafe(32)
 LOCK=threading.Lock();AI_LOCK=threading.Lock();CACHE={}
+SEARCH_POOL=concurrent.futures.ThreadPoolExecutor(max_workers=2)
 LIMIT=int(os.environ.get('DAILY_REQUEST_LIMIT','0'))
 SEARCH=os.environ.get('SEARCH_PROVIDER','auto')
 TAVILY_KEY=os.environ.get('TAVILY_API_KEY','')
@@ -65,6 +66,14 @@ def search_provider():
         except ImportError:return None
     return 'ddgs'
 
+def _ddgs_text(q):
+    try:
+        try:from ddgs import DDGS
+        except ImportError:from duckduckgo_search import DDGS
+        return list(DDGS(timeout=20).text(q,max_results=5))
+    except ValueError:raise
+    except Exception as e:raise ValueError('DuckDuckGo检索失败（网络可能受限）：'+str(e)[:80]) from None
+
 def web_search(q):
     provider=search_provider()
     if not provider:raise ValueError('未配置检索服务：可在 .env 填 TAVILY_API_KEY，或 pip install ddgs')
@@ -80,11 +89,8 @@ def web_search(q):
         except (urllib.error.URLError,TimeoutError,ValueError):raise ValueError('Tavily连接失败或超时') from None
         raw=out.get('results',[])
     else:
-        try:
-            try:from ddgs import DDGS
-            except ImportError:from duckduckgo_search import DDGS
-            raw=list(DDGS().text(q,max_results=5))
-        except Exception as e:raise ValueError('DuckDuckGo检索失败（网络可能受限）：'+str(e)[:80]) from None
+        try:raw=SEARCH_POOL.submit(_ddgs_text,q).result(timeout=35)
+        except concurrent.futures.TimeoutError:raise ValueError('检索超时（35秒），可能是网络限流，可稍后重试或手动登记来源') from None
     results=[{'title':str(r.get('title',''))[:120],'url':str(r.get('url') or r.get('href') or '')[:500],'snippet':str(r.get('content') or r.get('body') or '')[:400]} for r in raw if r.get('url') or r.get('href')]
     if not results:raise ValueError('检索没有可用结果，可换个说法重试或手动登记来源')
     return results
