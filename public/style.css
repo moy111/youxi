@@ -90,3 +90,16 @@ summary{cursor:pointer;font-size:13px;color:var(--key);font-weight:600}
 .chip:hover{background:rgba(53,84,64,.08)}
 .src{margin:8px 0;font-size:13px}
 .src a{color:var(--key);word-break:break-all}
+.pill{font-size:12px;background:rgba(53,84,64,.08);color:var(--key);border-radius:999px;padding:2px 10px;font-weight:400;margin-left:6px;vertical-align:2px}
+.todo{border:1px solid var(--line);border-left:4px solid var(--key);border-radius:10px;padding:10px 12px;margin:10px 0;background:#fff}
+.todo.ai{border-left:4px solid var(--line)}
+.todo>summary,.ai-group>summary{display:flex;align-items:center;gap:8px}
+.todo>summary{font-weight:400}
+.tb{flex:none;font-size:11px;border-radius:6px;padding:2px 8px}
+.tb.you{background:var(--key);color:var(--on);font-weight:600}
+.tb.ai{background:var(--soft);color:var(--sub);border:1px solid var(--line)}
+.tt{flex:1;font-size:13.5px;line-height:1.5}
+.ts{flex:none;font-size:12px;color:var(--sub);white-space:nowrap}
+.ts.ok{color:var(--ok);font-weight:600}
+.ts.fail{color:var(--danger);font-weight:600}
+.ai-group{border:1px dashed var(--line);background:var(--soft)}
