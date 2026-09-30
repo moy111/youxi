@@ -75,7 +75,14 @@ python server.py
 
 打开 http://127.0.0.1:8765 ，首次使用需在页面粘贴 DeepSeek API Key，本地服务会写入 `.env`。
 
-**测试 Key 未上传至 GitHub，已单独提供给小红书项目对接人。**如需本地体验 AI 功能，可联系对接人获取测试 Key，或使用自己的 DeepSeek API Key。
+> ### 🔑 DeepSeek API Key
+> **测试 Key 未上传至 GitHub，已单独提供给小红书项目对接人。**
+>
+> 如需本地体验完整 AI 功能：
+> - 可联系小红书项目对接人获取测试 Key；
+> - 或直接使用自己的 DeepSeek API Key。
+>
+> 无需本地运行也可通过 README 顶部的演示视频查看完整产品流程。
 
 也可复制 `.env.example` 为 `.env` 手动填写后再启动。真实 AI 调用需要本地服务保管密钥，不能直接双击 `index.html` 运行。
 
